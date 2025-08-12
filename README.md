@@ -1,89 +1,193 @@
 # NEAR Scrappy Template
 
-A minimal, no-nonsense template for quickly building NEAR apps. No frameworks, no TypeScript burden - just vanilla JS with Vite for fast dev experience.
+A minimal template for building NEAR applications. Provides wallet connectivity, RPC communication, and offline signing capabilities without framework overhead.
 
-## Features
+## Requirements
 
-- **Wallet Selector integration** - Professional wallet connection UI
-- Direct `JsonRpcProvider` usage (avoids `nearAPI.connect()` complexity)
-- FastNear RPC support with Bearer token authentication
-- Multi-wallet support (MyNearWallet, HERE, Meteor)
-- Local key pair generation and storage
-- Session persistence
-- Dark mode UI by default
-- Network auto-detection (testnet/mainnet)
+- Node.js 16+
+- Yarn
 
-## Quick Start
+## Installation
 
 ```bash
-# Install dependencies
 yarn install
+cp .env.example .env  # Optional: Add FastNear API key
+```
 
-# Copy env example
-cp .env.example .env
+## Development
 
-# Add your FastNear API key (optional but recommended)
-# Get one at: https://fastnear.com
-
-# Start dev server
-yarn dev     # port 3001
-yarn dev-ai  # port 3002
-
-# Build for production
-yarn build
+```bash
+yarn dev        # Development server on port 3001
+yarn dev-ai     # Alternative port 3002 for AI sessions
+yarn build      # Production build
+yarn type-check # TypeScript validation
 ```
 
 ## Architecture
 
-```
-index.html          # Entry point with minimal UI
-src/
-  main.js          # Core app logic, provider setup, UI handling
-  auth.js          # Key pair generation and storage utilities
+### Core Files
+
+- `src/main.ts` - Application entry point, UI state management, event handlers
+- `src/wallet-selector.ts` - Wallet connection interface using @near-wallet-selector/core v9.3
+- `src/auth.ts` - Local key pair generation and storage utilities
+- `src/near-helpers.ts` - NEAR API wrapper functions for common operations
+- `src/offline.ts` - Canonical JSON signing implementation for offline signatures
+- `src/rpc.ts` - FastNear RPC authentication and request helpers
+- `src/env.d.ts` - TypeScript environment variable declarations
+
+### Dependencies
+
+- `near-api-js@6.2.5` - NEAR Protocol JavaScript API
+- `@near-wallet-selector/*@9.3.0` - Wallet connection modules
+- `bs58` - Base58 encoding/decoding
+- `vite@5.0.0` - Build tool and development server
+- `typescript@5.9.2` - Optional type checking
+
+## Configuration
+
+### Environment Variables
+
+- `VITE_FASTNEAR_API_KEY` - Optional API key for FastNear RPC endpoints
+
+### Network Selection
+
+Network is auto-detected based on hostname:
+- `localhost` → testnet
+- `*.vercel.app` → mainnet
+- `*.netlify.app` → mainnet
+- Default → testnet
+
+## API Usage
+
+### RPC Calls
+
+```typescript
+import { rpcCall } from './rpc'
+
+const account = await rpcCall<AccountView>(
+  'https://rpc.testnet.fastnear.com',
+  'query',
+  {
+    request_type: 'view_account',
+    account_id: 'example.testnet',
+    finality: 'final'
+  }
+)
 ```
 
-## Key Patterns
+### Wallet Connection
 
-### Direct Provider Usage
-```javascript
-const provider = new nearAPI.providers.JsonRpcProvider({
-  url: 'https://rpc.testnet.fastnear.com',
-  headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : undefined
+```typescript
+import { initWalletSelector, showWalletModal, getWalletInfo } from './wallet-selector'
+
+// Initialize selector with optional contract ID
+const selector = await initWalletSelector('contract.testnet')
+
+// Display wallet selection modal
+showWalletModal()
+
+// Get current wallet state
+const { wallet, accounts } = await getWalletInfo()
+```
+
+### Offline Signing
+
+```typescript
+import { signOffline } from './offline'
+import { KeyPair } from '@near-js/crypto'
+
+const keyPair = KeyPair.fromRandom('ed25519')
+const payload = { message: 'Sign this', timestamp: Date.now() }
+
+const { envelope, signature_b58 } = signOffline(keyPair, payload, {
+  network: 'testnet',
+  ttlSeconds: 300,
+  aud: 'myservice.com'
 })
 ```
 
-### Simple Account Queries
-```javascript
-const account = await provider.query({
-  request_type: 'view_account',
-  finality: 'final',
-  account_id: accountId
-})
+### View Methods
+
+```typescript
+import { viewMethod } from './near-helpers'
+
+const result = await viewMethod(
+  provider,
+  'contract.testnet',
+  'get_status',
+  { account_id: 'user.testnet' }
+)
 ```
 
-## Wallet Selector
+## Offline Signature Format
 
-The template includes @near-wallet-selector for professional wallet integration:
+The template implements a custom offline signature envelope:
 
-```javascript
-// Set CONTRACT_ID in main.js to create function-call access keys
-const CONTRACT_ID = 'guest-book.testnet'
-
-// Wallet selector handles:
-// - Multiple wallet options
-// - Connection persistence  
-// - State management
-// - User-friendly UI
+```json
+{
+  "offline_signature": {
+    "v": 1,
+    "algo": "ed25519",
+    "context": "fastnear.offline",
+    "network": "testnet",
+    "public_key": "ed25519:...",
+    "nonce": "base58_random_bytes",
+    "iat": 1234567890,
+    "exp": 1234568190,
+    "aud": "optional_audience",
+    "origin": "https://example.com",
+    "payload": { "custom": "data" }
+  }
+}
 ```
 
-## TODO
+Signatures are canonical JSON (sorted keys) to ensure consistent byte representation.
 
-- Implement contract interaction examples using wallet selector
-- Add transaction signing examples
-- Create more helper functions for common patterns
+## Key Management
 
-## Notes
+For demonstration purposes, the template stores generated key pairs in localStorage:
+- Key format: `near_key_{accountId}`
+- Storage format: `{ accountId, publicKey, keyPairString, created }`
 
-- This template uses testnet by default
-- Keys are stored in localStorage (not for production use)
-- The InMemorySigner issue is avoided by using direct provider calls
+This approach is not suitable for production use.
+
+## Wallet Integration
+
+Supported wallets:
+- MyNearWallet
+- Meteor Wallet
+- InTEAR Wallet
+
+The wallet selector manages its own key storage and signing. The offline signing functionality is separate and intended for custom authentication flows.
+
+## TypeScript Usage
+
+TypeScript is configured for development assistance but not enforcement:
+- `allowJs: true` - JavaScript files are supported
+- `checkJs: true` - Type checking for JS files
+- `strict: false` - Relaxed type checking
+- `noImplicitAny: false` - Implicit any allowed
+
+## Build Output
+
+Production builds are output to `dist/` directory. The build uses Vite's default optimizations including:
+- Module bundling
+- Tree shaking
+- Minification
+- Asset optimization
+
+## Limitations
+
+- Local key storage is not secure for production
+- No transaction construction helpers
+- No contract deployment utilities
+- Limited error handling examples
+- No test framework included
+
+## Technical Decisions
+
+1. **Direct JsonRpcProvider** - Avoids complexity of `nearAPI.connect()` pattern
+2. **No lazy loading** - All imports are static for simplicity
+3. **Vanilla event handlers** - No framework abstractions
+4. **Single HTML file** - All UI elements defined in index.html
+5. **CSS in HTML** - Styles included directly, no build step required
