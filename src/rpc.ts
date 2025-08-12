@@ -29,7 +29,7 @@ export async function rpcCall<T = unknown>(
   params: unknown,
   auth: AuthMode = 'header'
 ): Promise<T> {
-  const body = JSON.stringify({ jsonrpc: '2.0', id: 'dontcare', method, params });
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 'fastnear', method, params });
   const [url, init] = withFastNearAuth(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
