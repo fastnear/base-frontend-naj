@@ -1,0 +1,39 @@
+{
+  "name": "near-scrappy-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3001",
+    "dev-ai": "vite --port 3002",
+    "build": "vite build",
+    "clean": "rm -rf dist",
+    "preview": "vite preview --port 3001",
+    "preview-ai": "vite preview --port 3002",
+    "lint": "echo 'No linting configured yet'",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@near-wallet-selector/core": "^9.3.0",
+    "@near-wallet-selector/intear-wallet": "^9.3.0",
+    "@near-wallet-selector/meteor-wallet": "^9.3.0",
+    "@near-wallet-selector/modal-ui-js": "^9.3.0",
+    "@near-wallet-selector/my-near-wallet": "^9.3.0",
+    "bn.js": "^5.2.1",
+    "bs58": "^4.0.1",
+    "near-api-js": "^6.2.5"
+  },
+  "overrides": {
+    "@near-wallet-selector/core": {
+      "near-api-js": "^6.2.5"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "buffer": "^6.0.3",
+    "process": "^0.11.10",
+    "typescript": "^5.9.2",
+    "vite": "^5.0.0",
+    "vite-plugin-node-polyfills": "^0.19.0"
+  }
+}

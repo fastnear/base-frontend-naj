@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    // Enable JavaScript support with type checking
+    "allowJs": true,
+    "checkJs": true,
+    
+    // Better error messages with declaration maps
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    
+    // Modern JS target
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "lib": ["ES2020", "dom"],
+    
+    // Type checking options (balanced for scrappy JS)
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    
+    // Import helpers
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    
+    // Path mapping for better imports
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    
+    // Output settings
+    "outDir": "./dist",
+    "noEmit": true,
+    
+    // Better type acquisition
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "vite.config.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "ai-output.txt"
+  ]
+}

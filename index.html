@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEAR Scrappy Template</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #0a0a0a;
+      color: #e0e0e0;
+    }
+    .container {
+      background: #1a1a1a;
+      padding: 2rem;
+      border-radius: 8px;
+      border: 1px solid #333;
+    }
+    h1 {
+      margin-top: 0;
+      color: #fff;
+    }
+    input, button {
+      display: block;
+      width: 100%;
+      padding: 0.75rem;
+      margin: 0.5rem 0;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      color: #e0e0e0;
+      border-radius: 4px;
+      font-size: 1rem;
+    }
+    button {
+      background: #0084ff;
+      color: white;
+      cursor: pointer;
+      border: none;
+    }
+    button:hover {
+      background: #0066cc;
+    }
+    button:disabled {
+      background: #444;
+      cursor: not-allowed;
+    }
+    .status {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #2a2a2a;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .error {
+      color: #ff6b6b;
+    }
+    .success {
+      color: #51cf66;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>NEAR Quick Login</h1>
+    
+    <div id="login-form">
+      <button id="login-btn">Connect Wallet</button>
+      <p style="margin-top: 1rem; font-size: 0.9rem; color: #888;">
+        Connect your NEAR wallet to get started
+      </p>
+    </div>
+
+    <div id="logged-in" class="hidden">
+      <p>Logged in as: <strong id="current-account"></strong></p>
+      <button id="check-balance">Check Balance</button>
+      <button id="sign-message">Sign Test Message</button>
+      <button id="logout-btn">Logout</button>
+    </div>
+
+    <div id="status" class="status hidden"></div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
