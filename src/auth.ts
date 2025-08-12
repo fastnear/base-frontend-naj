@@ -9,16 +9,16 @@ export function generateKeyPair() {
   return {
     keyPair,
     publicKey: keyPair.getPublicKey().toString(),
-    secretKey: encode(keyPair.secretKey)
+    keyPairString: keyPair.toString() // "ed25519:..."
   }
 }
 
 // Store key pair securely in localStorage
-export function storeKeyPair(accountId, keyPair) {
+export function storeKeyPair(accountId: string, keyPair: KeyPair) {
   const keyData = {
     accountId,
     publicKey: keyPair.getPublicKey().toString(),
-    secretKey: encode(keyPair.secretKey),
+    keyPairString: keyPair.toString(),
     created: Date.now()
   }
   
@@ -27,17 +27,18 @@ export function storeKeyPair(accountId, keyPair) {
 }
 
 // Retrieve stored key pair
-export function getStoredKeyPair(accountId) {
+export function getStoredKeyPair(accountId: string) {
   const stored = localStorage.getItem(`near_key_${accountId}`)
   if (!stored) return null
   
   try {
     const keyData = JSON.parse(stored)
     // Reconstruct KeyPair from stored data
-    const keyPair = KeyPair.fromString(keyData.secretKey)
+    const keyPair = KeyPair.fromString(keyData.keyPairString || keyData.secretKey)
     return {
       keyPair,
       publicKey: keyData.publicKey,
+      keyPairString: keyData.keyPairString || keyData.secretKey,
       created: keyData.created
     }
   } catch (e) {
@@ -47,7 +48,7 @@ export function getStoredKeyPair(accountId) {
 }
 
 // Create function call access key transaction
-export function createAddKeyTransaction(accountId, publicKey, contractId = null) {
+export function createAddKeyTransaction(accountId: string, publicKey: string, contractId: string | null = null) {
   const actions = [
     nearAPI.transactions.addKey(
       nearAPI.utils.PublicKey.from(publicKey),
@@ -67,7 +68,7 @@ export function createAddKeyTransaction(accountId, publicKey, contractId = null)
 }
 
 // Sign a transaction with stored key
-export async function signTransaction(transaction, keyPair) {
+export async function signTransaction(transaction: any, keyPair: KeyPair) {
   const message = encodeTransaction(transaction)
   const signature = keyPair.sign(message)
   

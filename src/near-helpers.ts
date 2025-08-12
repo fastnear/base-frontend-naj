@@ -46,15 +46,14 @@ export function generateKeyPair() {
   return {
     keyPair,
     publicKey: keyPair.getPublicKey().toString(),
-    secretKey: keyPair.toString(), // ed25519:base58secretkey format
-    rawSecretKey: encode(keyPair.secretKey) // just the base58 part
+    keyPairString: keyPair.toString() // ed25519:base58secretkey format
   }
 }
 
 /**
  * Restore key pair from stored secret key (handles multiple formats)
  */
-export function restoreKeyPair(secretKey) {
+export function restoreKeyPair(secretKey: string) {
   // Handle both "ed25519:xxx" and raw base58 formats
   const cleanKey = secretKey.startsWith('ed25519:') 
     ? secretKey 
@@ -231,7 +230,7 @@ export async function findExistingKey(accountId, network = null) {
     const stored = localStorage.getItem(customKey)
     if (stored) {
       const keyData = JSON.parse(stored)
-      const keyPair = KeyPair.fromString(keyData.secretKey)
+      const keyPair = KeyPair.fromString(keyData.keyPairString || keyData.secretKey)
       console.log('✅ Found key in our custom storage')
       return keyPair
     }
@@ -301,7 +300,9 @@ export async function viewMethod(provider, contractId, method, args = {}) {
   })
   
   // Parse the result from base64
-  const resultString = Buffer.from(result.result).toString()
+  // Decode base64 result (browser-compatible)
+  const raw = Uint8Array.from(atob(result.result), c => c.charCodeAt(0));
+  const resultString = new TextDecoder().decode(raw)
   try {
     return JSON.parse(resultString)
   } catch (e) {
