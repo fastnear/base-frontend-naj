@@ -28,6 +28,10 @@
       "near-api-js": "^6.2.5"
     }
   },
+  "resolutions": {
+    "@near-js/*": "^1.4.0",
+    "borsh": "^2.0.0"
+  },
   "devDependencies": {
     "@types/node": "^24.2.1",
     "buffer": "^6.0.3",
