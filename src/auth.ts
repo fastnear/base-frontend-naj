@@ -1,3 +1,19 @@
+/**
+ * DEPRECATED: This file is no longer used.
+ * 
+ * Key management has been moved to wallet-selector, which provides
+ * proper abstractions for signing without exposing private keys.
+ * 
+ * See wallet-selector-signing.md for the correct approach to:
+ * - Message signing using wallet.signMessage()
+ * - Transaction signing using wallet.signAndSendTransaction()
+ * 
+ * Direct key storage in localStorage is considered bad practice as it:
+ * - Violates wallet security boundaries
+ * - Doesn't work consistently across different wallet types
+ * - Exposes keys to potential XSS attacks
+ */
+
 import * as nearAPI from 'near-api-js'
 import { KeyPair } from '@near-js/crypto'
 import { encodeTransaction } from '@near-js/transactions'

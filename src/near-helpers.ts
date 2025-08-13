@@ -1,6 +1,8 @@
 import * as nearAPI from 'near-api-js'
 import { KeyPair } from '@near-js/crypto'
 import { encode, decode } from 'bs58'
+import { createOfflineSignature, verifyEnvelope, assertKeyOnChain } from './offline-signature.js'
+import { simpleSign, simpleVerify, USE_FN_OS1 } from './simple-offline-signature.js'
 
 // Domains that indicate testnet
 const TestnetDomains = {
@@ -93,51 +95,56 @@ export function buildAddKeyAction(publicKey, contractId = null, methods = [], al
 }
 
 /**
- * Sign an offline message with a consistent wrapper format
- * @param {object} payload - The actual data to sign
- * @param {KeyPair} keyPair - The key pair to sign with
- * @returns {object} Signed message with signature
+ * Sign an offline message - uses simple signing by default
+ * Set USE_FN_OS1 = true in simple-offline-signature.js to use FN-OS1
+ * @param {object} options - Signing options
+ * @param {object} options.payload - The actual data to sign
+ * @param {KeyPair} options.keyPair - The key pair to sign with
+ * @param {string} options.accountId - NEAR account id being proven
+ * @param {string} options.aud - Audience (who this is intended for)
+ * @param {string} options.network - Network ('testnet' or 'mainnet', defaults to auto-detect)
+ * @param {number} options.ttlMinutes - TTL in minutes (default 5)
+ * @returns {Promise<object>} Signed message with signature
  */
-export function signOfflineMessage(payload, keyPair) {
-  const message = {
-    offline_signature: payload
-  }
-  
-  // Convert to bytes for signing
-  const messageBytes = new TextEncoder().encode(JSON.stringify(message))
-  
-  // Sign the message
-  const signature = keyPair.sign(messageBytes)
-  
-  return {
-    message,
-    signature: encode(signature.signature),
-    publicKey: signature.publicKey.toString()
+export async function signOfflineMessage({ 
+  payload, 
+  keyPair, 
+  accountId, 
+  aud, 
+  network = null,
+  ttlMinutes = 5 
+}) {
+  if (USE_FN_OS1) {
+    // Use full FN-OS1 specification
+    if (!network) {
+      network = detectNetwork()
+    }
+    
+    return createOfflineSignature({
+      network,
+      aud,
+      sub: accountId,
+      keyPair,
+      payload,
+      ttlMinutes
+    })
+  } else {
+    // Use simple signing (default)
+    return simpleSign({ payload, keyPair, accountId })
   }
 }
 
 /**
  * Verify an offline signed message
  * @param {object} signedMessage - The signed message object
- * @returns {boolean} Whether the signature is valid
+ * @returns {Promise<boolean>} Whether the signature is valid
  */
-export function verifyOfflineMessage(signedMessage) {
-  const { message, signature, publicKey } = signedMessage
-  
-  // Reconstruct the message bytes
-  const messageBytes = new TextEncoder().encode(JSON.stringify(message))
-  
-  // Decode the signature
-  const sigBytes = decode(signature)
-  
-  // Get the public key
-  const pubKey = nearAPI.utils.PublicKey.from(publicKey)
-  
-  // Create a key pair with just the public key for verification
-  // This is a bit hacky but works for verification
-  const keyPair = KeyPair.fromString('ed25519:' + encode(new Uint8Array(64)))
-  
-  return pubKey.verify(messageBytes, sigBytes)
+export async function verifyOfflineMessage(signedMessage) {
+  if (USE_FN_OS1) {
+    return verifyEnvelope(signedMessage)
+  } else {
+    return simpleVerify(signedMessage)
+  }
 }
 
 /**
@@ -196,90 +203,157 @@ export async function hasAccessKey(provider, accountId, publicKey) {
   }
 }
 
+// NOTE: Direct key access from wallets has been removed.
+// Use wallet-selector's signMessage() API instead for secure message signing.
+// See wallet-selector-signing.md for proper wallet integration patterns.
+
 /**
- * Find existing keys from various wallet sources
+ * Get function-call key created by wallet-selector (if available)
+ * This is only available when createAccessKeyFor was used during wallet setup
+ * Different wallets store keys in different formats
  * @param {string} accountId - Account to find keys for
- * @param {string} network - Network to search on (defaults to auto-detect)
- * @returns {object|null} Found key pair or null
+ * @param {string} network - Network ('testnet' or 'mainnet')
+ * @returns {object|null} Key pair and contract info or null
  */
-export async function findExistingKey(accountId, network = null) {
+export function getFunctionCallKey(accountId: string, network: string = null) {
   if (!network) {
     network = detectNetwork()
   }
   
-  console.log('=== findExistingKey ===')
-  console.log('Looking for keys for:', accountId, 'on', network)
-  console.log('localStorage keys:', Object.keys(localStorage))
-  
-  // 1. Check NEAR API JS default browser keystore
+  // 1. Check MyNearWallet format (stores under 'functionCallKey')
   try {
-    const keyStore = new nearAPI.keyStores.BrowserLocalStorageKeyStore()
-    const keyPair = await keyStore.getKey(network, accountId)
-    if (keyPair) {
-      console.log('✅ Found key in NEAR browser keystore')
-      return keyPair
-    }
-  } catch (e) {
-    console.log('❌ No key in NEAR browser keystore:', e.message)
-  }
-  
-  // 2. Check our custom storage (from auth.js pattern)
-  try {
-    const customKey = `near_key_${accountId}`
-    console.log(`Checking custom storage: ${customKey}`)
-    const stored = localStorage.getItem(customKey)
+    const stored = localStorage.getItem('functionCallKey')
     if (stored) {
-      const keyData = JSON.parse(stored)
-      const keyPair = KeyPair.fromString(keyData.keyPairString || keyData.secretKey)
-      console.log('✅ Found key in our custom storage')
-      return keyPair
-    }
-  } catch (e) {
-    console.log('❌ No key in custom storage:', e.message)
-  }
-  
-  // 3. Check HERE wallet format
-  try {
-    const hereKeystore = localStorage.getItem('herewallet:keystore')
-    if (hereKeystore) {
-      const parsed = JSON.parse(hereKeystore)
-      if (parsed[network] && parsed[network].accounts && parsed[network].accounts[accountId]) {
-        const keyPair = nearAPI.utils.KeyPair.fromString(parsed[network].accounts[accountId])
-        console.log('Found key in HERE wallet')
-        return keyPair
-      }
-    }
-  } catch (e) {
-    console.log('No key in HERE wallet')
-  }
-  
-  // 4. Check Meteor wallet format
-  try {
-    const meteorKey = localStorage.getItem(`_meteor_wallet${accountId}:${network}`)
-    if (meteorKey) {
-      const keyPair = nearAPI.utils.KeyPair.fromString(meteorKey)
-      console.log('Found key in Meteor wallet')
-      return keyPair
-    }
-  } catch (e) {
-    console.log('No key in Meteor wallet')
-  }
-  
-  // 5. Check MyNearWallet format (near-wallet prefix)
-  try {
-    const keys = Object.keys(localStorage)
-    for (const key of keys) {
-      if (key.startsWith(`near-wallet:${network}:`) && key.includes(accountId)) {
-        const keyPair = nearAPI.utils.KeyPair.fromString(localStorage.getItem(key))
-        console.log('Found key in MyNearWallet format')
-        return keyPair
+      const data = JSON.parse(stored)
+      if (data.privateKey) {
+        console.log('Found function-call key in MyNearWallet format')
+        return {
+          keyPair: KeyPair.fromString(data.privateKey),
+          contractId: data.contractId,
+          methods: data.methods || [],
+          source: 'mynearwallet'
+        }
       }
     }
   } catch (e) {
     console.log('No key in MyNearWallet format')
   }
   
+  // 2. Check Meteor wallet format (_meteor_wallet prefix)
+  try {
+    const meteorKey = localStorage.getItem(`_meteor_wallet${accountId}:${network}`)
+    if (meteorKey) {
+      console.log('Found key in Meteor wallet format')
+      return {
+        keyPair: KeyPair.fromString(meteorKey),
+        contractId: null, // Meteor doesn't store contract info
+        methods: [],
+        source: 'meteor'
+      }
+    }
+  } catch (e) {
+    console.log('No key in Meteor wallet format')
+  }
+  
+  // 3. Check Intear wallet format (_intear_wallet_connected_account)
+  try {
+    const intearData = localStorage.getItem('_intear_wallet_connected_account')
+    if (intearData) {
+      const parsed = JSON.parse(intearData)
+      if (parsed.key && parsed.accounts && parsed.accounts[0].accountId === accountId) {
+        console.log('Found key in Intear wallet format')
+        return {
+          keyPair: KeyPair.fromString(parsed.key),
+          contractId: parsed.contractId || null,
+          methods: parsed.methodNames || [],
+          source: 'intear'
+        }
+      }
+    }
+  } catch (e) {
+    console.log('No key in Intear wallet format')
+  }
+  
+  // 4. Check standard near-api-js keystore format
+  try {
+    const nearApiKey = localStorage.getItem(`near-api-js:keystore:${accountId}:${network}`)
+    if (nearApiKey) {
+      console.log('Found key in near-api-js keystore format')
+      return {
+        keyPair: KeyPair.fromString(nearApiKey),
+        contractId: null,
+        methods: [],
+        source: 'near-api-js'
+      }
+    }
+  } catch (e) {
+    console.log('No key in near-api-js format')
+  }
+  
+  // 5. Check if wallet-selector temporarily stored a key during createAccessKeyFor flow
+  try {
+    const keys = Object.keys(localStorage)
+    for (const key of keys) {
+      // Look for patterns that might indicate wallet-generated keys
+      if (key.includes(accountId) && (key.includes('keystore') || key.includes('key'))) {
+        const value = localStorage.getItem(key)
+        if (value && value.includes('ed25519:')) {
+          console.log(`Found potential key in: ${key}`)
+          try {
+            const keyPair = KeyPair.fromString(value)
+            return {
+              keyPair,
+              contractId: null,
+              methods: [],
+              source: key
+            }
+          } catch (e) {
+            // Not a valid key, continue searching
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.log('No keys found in search')
+  }
+  
   return null
+}
+
+/**
+ * Debug function to list all potential keys in localStorage
+ * @param {string} accountId - Account to search for
+ */
+export function debugListPotentialKeys(accountId: string) {
+  console.log('=== Searching for keys in localStorage ===')
+  console.log('Account:', accountId)
+  console.log('Total localStorage items:', localStorage.length)
+  
+  const potentialKeys = []
+  const keys = Object.keys(localStorage)
+  
+  for (const key of keys) {
+    const value = localStorage.getItem(key)
+    
+    // Check if this might be a key storage
+    if (
+      key.includes(accountId) || 
+      key.includes('keystore') || 
+      key.includes('key') ||
+      key.includes('wallet') ||
+      (value && value.includes('ed25519:'))
+    ) {
+      potentialKeys.push({
+        key,
+        value: value.length > 100 ? value.substring(0, 100) + '...' : value,
+        hasEd25519: value.includes('ed25519:'),
+        length: value.length
+      })
+    }
+  }
+  
+  console.table(potentialKeys)
+  return potentialKeys
 }
 
 /**
@@ -309,4 +383,15 @@ export async function viewMethod(provider, contractId, method, args = {}) {
     // Return raw string if not JSON
     return resultString
   }
+}
+
+/**
+ * Check if a public key exists on a NEAR account (identity binding)
+ * @param {Provider} provider - The NEAR provider
+ * @param {string} accountId - Account to check
+ * @param {string} publicKey - Public key to verify (e.g. "ed25519:...")
+ * @returns {Promise<boolean>} True if key exists on account
+ */
+export async function verifyKeyOnChain(provider, accountId, publicKey) {
+  return assertKeyOnChain(provider, accountId, publicKey)
 }

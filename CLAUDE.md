@@ -2,9 +2,31 @@
 
 This file provides comprehensive guidance to Claude Code (claude.ai/code) when working with this repository. It emphasizes technical continuity, autonomous development workflows, and architectural understanding.
 
+**📚 IMPORTANT**: This codebase serves as a reference implementation for NEAR wallet integration with offline signing, documenting patterns that are poorly maintained in wallet-selector.
+
 ## Project Context
 
 This is a bare-bones NEAR template designed for quick prototyping - the kind of thing you'd copy for a 20-minute watercooler idea. No frills, no framework overhead, just the essentials to connect a NEAR testnet account and interact with contracts.
+
+## Knowledge Certainty Levels
+
+### High Certainty (✅ Tested & Verified)
+- Wallet-selector's `createAccessKeyFor` option generates function-call keys during sign-in
+- Different wallets store these keys in distinct localStorage patterns (documented in [`WALLET_KEY_STORAGE_PATTERNS.md`](./WALLET_KEY_STORAGE_PATTERNS.md))
+- FN-OS1 offline signature format works with both Ed25519 and Secp256k1 curves
+- Direct JsonRpcProvider usage is more reliable than legacy `nearAPI.connect()` patterns
+- TypeScript configuration provides error checking without enforcing .ts files
+
+### Medium Certainty (⚠️ Observed but needs more testing)
+- Function-call keys from wallets can be used for offline signing (works but security implications unclear)
+- Wallet storage patterns may vary by wallet version
+- Some wallets (like Meteor) might not store contract/method restrictions with keys
+
+### Low Certainty (❓ Questions remain)
+- How wallets handle key revocation and cleanup
+- Cross-device logout mechanisms (Intear has it, others unclear)
+- Long-term viability of wallet-selector given maintenance issues
+- Why create-near-app avoids `createAccessKeyFor` (simplicity vs other reasons)
 
 ## Critical Context for AI Sessions
 
@@ -52,6 +74,7 @@ Note: `ai-output.txt` is in `.gitignore` to keep the repository clean
   const provider = new nearAPI.providers.JsonRpcProvider({ url, headers })
   ```
 - **Key insight**: The modern near-api-js supports direct provider usage without the connection ceremony
+- **Why this matters**: Many examples still show `nearAPI.connect()` but it creates unnecessary complexity and version conflicts
 
 ### Authentication Pattern
 - FastNear RPC with Bearer token for higher rate limits
@@ -62,7 +85,8 @@ Note: `ai-output.txt` is in `.gitignore` to keep the repository clean
 - **Login = Creating function-call access key** (not full access)
 - Store keys in localStorage for prototyping (obviously not production-ready)
 - Generate keys locally, but adding them to account requires existing key (wallet redirect)
-- Multi-wallet key discovery: checks NEAR browser keystore, HERE wallet, Meteor wallet, MyNearWallet formats
+- Multi-wallet key discovery: checks MyNearWallet, Meteor wallet, Intear wallet, and standard formats
+- **createAccessKeyFor**: When configured with a contractId, enables wallets to create and store function-call keys locally
 
 ### Ergonomic Helpers Created
 Created `near-helpers.js` to fix awkward near-api-js patterns:
@@ -70,21 +94,33 @@ Created `near-helpers.js` to fix awkward near-api-js patterns:
 - `detectNetwork()` - Auto-detect testnet/mainnet based on hostname
 - `accountExists()` - Clean boolean check instead of catching errors
 - `getBalance()` - Returns formatted NEAR amounts, not yocto strings
-- `signOfflineMessage()` - Simple offline signing with consistent wrapper format
-- `findExistingKey()` - Searches multiple wallet storage locations
+- `signOfflineMessage()` - FN-OS1 offline signing with dual-curve support
+- `verifyOfflineMessage()` - Verify FN-OS1 signatures
+- `verifyKeyOnChain()` - Check if a public key belongs to an account
+- `getFunctionCallKey()` - Finds function-call keys from various wallet storage locations
 - `viewMethod()` - Easy contract view calls with auto-parsing
 - `buildAddKeyAction()` - Helper for adding function-call keys
 
-### Offline Signature Format
-Decided on minimal, consistent structure:
+### Offline Signature Approach
+
+**Default: Simple Signing** (Pragmatic, "just works")
 ```javascript
-{
-  "offline_signature": {
-    // your actual payload here
-  }
-}
+// Uses simple JSON stringify + sign approach
+const signed = await signOfflineMessage({
+  payload: { action: "authenticate" },
+  keyPair,
+  accountId: "alice.testnet"
+})
+// Returns: { message, signature, publicKey, accountId }
 ```
-No NEPs, no complex standards - just a simple wrapper that's always the same.
+
+**Optional: FN-OS1** (Full specification with advanced features)
+- Set `USE_FN_OS1 = true` in `simple-offline-signature.js` to enable
+- Adds replay protection, TTL, deterministic canonicalization
+- Dual-curve support (Ed25519 + Secp256k1)
+- See [`FN-OS1.md`](./FN-OS1.md) for complete specification
+
+This two-tier approach allows internal workflows to proceed without being blocked by finalizing the offline signature standard.
 
 ### TypeScript Approach
 - **Not enforcing TypeScript** - This is for quick hacking
@@ -100,6 +136,15 @@ No NEPs, no complex standards - just a simple wrapper that's always the same.
   - `@near-js/crypto/lib/esm/key_pair_ed25519.d.ts`
   - `@near-js/transactions/lib/esm/action_creators.d.ts`
 
+## Wallet Key Storage Patterns
+
+When `createAccessKeyFor` is configured, different wallets store function-call keys differently:
+- **MyNearWallet**: `functionCallKey` (JSON with privateKey, contractId, methods)
+- **Meteor Wallet**: `_meteor_wallet${accountId}:${network}` (raw key string)
+- **Intear Wallet**: `_intear_wallet_connected_account` (JSON with comprehensive data)
+
+See [`WALLET_KEY_STORAGE_PATTERNS.md`](./WALLET_KEY_STORAGE_PATTERNS.md) for detailed documentation.
+
 ## What This Template Is NOT
 - Not a production-ready authentication system
 - Not a full-featured NEAR dApp framework
@@ -109,7 +154,7 @@ No NEPs, no complex standards - just a simple wrapper that's always the same.
 ## Wallet Selector Integration
 Successfully integrated @near-wallet-selector/core v9.3.0:
 - Provides professional wallet connection UI
-- Supports MyNearWallet, HERE Wallet, Meteor Wallet
+- Supports MyNearWallet, Meteor Wallet, Intear Wallet
 - Handles wallet state management and persistence
 - Works alongside our ergonomic helpers
 - Version mismatch with near-api-js v6 handled via yarn overrides
@@ -146,6 +191,12 @@ onWalletChange((state) => {
 **Solution**: Make sure `.yarnrc.yml` has `nodeLinker: node-modules` and reinstall
 
 ## Key Files
-- `src/near-helpers.js` - Ergonomic wrappers around near-api-js
-- `src/auth.js` - Key pair management utilities
-- `src/main.js` - Main application logic
+- [`src/near-helpers.ts`](./src/near-helpers.ts) - Ergonomic wrappers around near-api-js
+- [`src/simple-offline-signature.js`](./src/simple-offline-signature.js) - Simple signing (default, pragmatic)
+- [`src/offline-signature.js`](./src/offline-signature.js) - FN-OS1 implementation (optional, full spec)
+- [`src/auth.ts`](./src/auth.ts) - Key pair management utilities (DEPRECATED)
+- [`src/main.ts`](./src/main.ts) - Main application logic
+- [`src/wallet-selector.ts`](./src/wallet-selector.ts) - Wallet connection integration
+- [`FN-OS1.md`](./FN-OS1.md) - Complete offline signature specification
+- [`WALLET_KEY_STORAGE_PATTERNS.md`](./WALLET_KEY_STORAGE_PATTERNS.md) - How wallets store function-call keys
+- [`QUESTIONS_FOR_PRINCIPAL_ENGINEER.md`](./QUESTIONS_FOR_PRINCIPAL_ENGINEER.md) - Architectural questions and uncertainties

@@ -19,6 +19,8 @@
     "@near-wallet-selector/meteor-wallet": "^9.3.0",
     "@near-wallet-selector/modal-ui-js": "^9.3.0",
     "@near-wallet-selector/my-near-wallet": "^9.3.0",
+    "@noble/curves": "^1.9.6",
+    "@noble/hashes": "^1.8.0",
     "bn.js": "^5.2.1",
     "bs58": "^4.0.1",
     "near-api-js": "^6.2.5"

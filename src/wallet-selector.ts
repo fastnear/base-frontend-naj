@@ -123,3 +123,17 @@ export function onWalletChange(callback: (state: WalletSelectorState) => void): 
 export function getSelector(): WalletSelector | null {
   return selector
 }
+
+/**
+ * Get the current wallet instance (or null if none selected).
+ */
+export async function getWallet() {
+  if (!selector) throw new Error('Wallet selector not initialized')
+  
+  const state = selector.store.getState()
+  if (!state.selectedWalletId) {
+    return null
+  }
+  
+  return await selector.wallet()
+}

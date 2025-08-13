@@ -1,12 +1,11 @@
-import { generateKeyPair, getStoredKeyPair, storeKeyPair } from './auth'
-import { signOffline } from './offline'
-import { createProvider, getBalance, detectNetwork } from './near-helpers'
+import { createProvider, getBalance, detectNetwork, getFunctionCallKey, signOfflineMessage, verifyOfflineMessage, debugListPotentialKeys } from './near-helpers'
+import { utils } from 'near-api-js'
 
 // Network config - auto-detect based on hostname
 const NETWORK_ID = detectNetwork()
 
 // Contract ID for function-call access keys (optional)
-const CONTRACT_ID = null // Set this to your contract ID if needed
+const CONTRACT_ID = 'count.mike.testnet' // This enables creation of function-call keys
 
 // UI elements
 const loginForm = document.getElementById('login-form')
@@ -15,6 +14,7 @@ const loginBtn = document.getElementById('login-btn')
 const logoutBtn = document.getElementById('logout-btn')
 const checkBalanceBtn = document.getElementById('check-balance')
 const signMessageBtn = document.getElementById('sign-message')
+const debugKeysBtn = document.getElementById('debug-keys')
 const currentAccountEl = document.getElementById('current-account')
 const statusEl = document.getElementById('status')
 
@@ -113,7 +113,7 @@ async function checkBalance() {
   }
 }
 
-// Sign a test message using our own offline signing
+// Sign a test message using wallet-selector's signMessage API or function-call key
 async function signTestMessage() {
   if (!accountId) {
     showStatus('Please connect your wallet first', true)
@@ -123,42 +123,116 @@ async function signTestMessage() {
   signMessageBtn.disabled = true
   
   try {
-    // Generate or retrieve a key pair for this demo
-    if (!keyPair) {
-      // Check if we have a stored key for this account
-      const stored = getStoredKeyPair(accountId)
-      if (stored) {
-        keyPair = stored.keyPair
-      } else {
-        // Generate a new key for offline signing demo
-        const generated = generateKeyPair()
-        keyPair = generated.keyPair
-        // Store it for future use (demo only - not for production!)
-        storeKeyPair(accountId, keyPair)
-        showStatus('Generated new key pair for offline signing demo')
+    // First, check if we have a function-call key available
+    const functionCallKey = getFunctionCallKey(accountId, NETWORK_ID)
+    if (functionCallKey) {
+      console.log('Found function-call key for:', functionCallKey.contractId)
+      console.log('Key source:', functionCallKey.source)
+      
+      // Use FN-OS1 for offline signing with the function-call key
+      const payload = {
+        message: "Hello NEAR! This is a test message signed with function-call key.",
+        timestamp: Date.now()
       }
+      
+      const signedMessage = await signOfflineMessage({
+        payload,
+        keyPair: functionCallKey.keyPair,
+        accountId,
+        aud: window.location.origin,
+        network: NETWORK_ID
+      })
+      
+      // Verify the signature
+      const isValid = await verifyOfflineMessage(signedMessage)
+      
+      showStatus(`FN-OS1 Message Signed with Function-Call Key:\n\nPayload: ${JSON.stringify(payload, null, 2)}\n\nAccount: ${accountId}\nContract: ${functionCallKey.contractId}\nPublic Key: ${functionCallKey.keyPair.getPublicKey().toString()}\n\nSignature Valid: ${isValid ? '✅' : '❌'}\n\nFull Envelope:\n${JSON.stringify(signedMessage, null, 2).slice(0, 200)}...`)
+      return
     }
     
-    // Create a test payload
-    const testPayload = {
-      statement: "Hello NEAR! This is a test offline signature.",
-      timestamp: Date.now(),
-      account_id: accountId
+    // Fall back to wallet.signMessage() if no function-call key
+    const { getWallet } = await import('./wallet-selector.ts')
+    const wallet = await getWallet()
+    
+    if (!wallet) {
+      showStatus('No wallet selected', true)
+      return
     }
     
-    // Sign using our offline signing format
-    const { envelope, signature_b58 } = signOffline(keyPair, testPayload, {
-      network: detectNetwork() as 'mainnet' | 'testnet'
+    // Check if wallet supports message signing
+    if (!wallet.signMessage) {
+      showStatus('This wallet does not support message signing and no function-call key available', true)
+      return
+    }
+    
+    // Create NEP-413 compliant message parameters
+    const message = "Hello NEAR! This is a test message to sign."
+    const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(32)))
+    const recipient = window.location.origin
+    
+    // Request signature from wallet
+    const signedMessage = await wallet.signMessage({
+      message,
+      nonce,
+      recipient
     })
     
-    console.log('Signed envelope:', envelope)
-    console.log('Signature:', signature_b58)
+    // Some wallets (like MyNearWallet) redirect and don't return the signature
+    if (!signedMessage) {
+      showStatus('Wallet will redirect for signing. Check the callback URL for the signature.')
+      return
+    }
     
-    showStatus(`Offline signature created:\n\nPayload:\n${JSON.stringify(testPayload, null, 2)}\n\nSignature: ${signature_b58.slice(0, 40)}...\n\nPublic Key: ${envelope.offline_signature.public_key}`)
+    console.log('Signed message:', signedMessage)
+    
+    // Import verification utilities from wallet-selector
+    const { verifySignature, verifyFullKeyBelongsToUser } = await import('@near-wallet-selector/core')
+    
+    // Verify the signature
+    const isValid = verifySignature({
+      message,
+      nonce,
+      recipient,
+      publicKey: signedMessage.publicKey,
+      signature: signedMessage.signature
+    })
+    
+    // Verify key belongs to user
+    let keyBelongsToUser = false
+    try {
+      keyBelongsToUser = await verifyFullKeyBelongsToUser({
+        publicKey: signedMessage.publicKey,
+        accountId: signedMessage.accountId,
+        network: walletSelector.options.network
+      })
+    } catch (e) {
+      console.log('Could not verify key ownership:', e)
+    }
+    
+    showStatus(`NEP-413 Message Signed:\n\nMessage: "${message}"\n\nAccount: ${signedMessage.accountId}\nPublic Key: ${signedMessage.publicKey}\n\nSignature: ${signedMessage.signature.slice(0, 40)}...\n\nSignature Valid: ${isValid ? '✅' : '❌'}\nKey Belongs to User: ${keyBelongsToUser ? '✅' : '❌'}`)
   } catch (error) {
     showStatus(`Error: ${error.message}`, true)
   } finally {
     signMessageBtn.disabled = false
+  }
+}
+
+// Debug function to list potential keys
+function debugKeys() {
+  if (!accountId) {
+    showStatus('Please connect your wallet first', true)
+    return
+  }
+  
+  console.log('Debugging keys for:', accountId)
+  const keys = debugListPotentialKeys(accountId)
+  
+  // Also try to get function-call key
+  const functionCallKey = getFunctionCallKey(accountId, NETWORK_ID)
+  if (functionCallKey) {
+    showStatus(`Found function-call key!\n\nSource: ${functionCallKey.source}\nContract: ${functionCallKey.contractId || 'N/A'}\nPublic Key: ${functionCallKey.keyPair.getPublicKey().toString()}\n\nCheck console for all potential keys.`)
+  } else {
+    showStatus(`No function-call key found for ${accountId}.\n\nFound ${keys.length} potential key entries in localStorage.\nCheck console for details.`)
   }
 }
 
@@ -167,6 +241,7 @@ loginBtn.addEventListener('click', login)
 logoutBtn.addEventListener('click', logout)
 checkBalanceBtn.addEventListener('click', checkBalance)
 signMessageBtn.addEventListener('click', signTestMessage)
+debugKeysBtn.addEventListener('click', debugKeys)
 
 // Initialize wallet selector
 async function initializeWalletSelector() {
